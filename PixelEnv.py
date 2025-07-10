@@ -1,11 +1,7 @@
 import gym
 from gym import spaces
 import numpy as np
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.policies import ActorCriticPolicy
-from torch import nn
-import torch
-from stable_baselines3.common.vec_env import DummyVecEnv
+from tianshou.env import DummyVectorEnv
 
 class PixelEnv(gym.Env):
     def __init__(self, features_block, next_true_states, valid_transitions_dict):
@@ -48,22 +44,6 @@ class PixelEnv(gym.Env):
         self.done = True
         return self.features, rewards, self.done, {}
     
-class CustomFeatureExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space, model, features_dim) :
-        super().__init__(observation_space, features_dim)
-        self.model = model
-
-    def forward(self, observations):
-        return self.model(observations)
-
-class CustomPolicy(ActorCriticPolicy):
-    def __init__(self, *args, model, features_dim, **kwargs):
-        super().__init__(
-            *args,
-            features_extractor_class=CustomFeatureExtractor,
-            features_extractor_kwargs={'model' : model, 'features_dim':features_dim},
-            **kwargs
-        )
 
 def create_vec_env_from_block(features_block, next_states, valid_transitions):
     """
@@ -79,4 +59,4 @@ def create_vec_env_from_block(features_block, next_states, valid_transitions):
             valid_transitions_dict=valid_transitions
         ))
 
-    return DummyVecEnv(envs)
+    return DummyVectorEnv(envs)

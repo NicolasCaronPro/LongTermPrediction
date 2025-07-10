@@ -15,10 +15,9 @@ import pandas as pd
 import os
 
 from matplotlib.colors import ListedColormap
-from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from tianshou.policy import PPOPolicy
+from tianshou.data import Collector, ReplayBuffer
 from PixelEnv import *
-from stable_baselines3 import PPO
 
 import shap
 
@@ -230,12 +229,22 @@ class Training():
             sample_env = self.create_env_fn(np.zeros((self.batch_size, len(self.features_name), self.ks + 1)), np.zeros((self.batch_size, 1)), self.valid_transitions_dict)
 
             if reinforcement_type == 'POO':
-                self.model = PPO(
-                    policy=CustomPolicy,
-                    env=sample_env,
-                    learning_rate=self.lr,
-                    policy_kwargs={'model' : dl, 'features_dim' : self.out_channels},
-                    verbose=0
+                action_dim = sample_env.single_action_space.n
+                actor = torch.nn.Sequential(
+                    dl,
+                    torch.nn.Linear(self.out_channels, action_dim)
+                )
+                critic = torch.nn.Sequential(
+                    dl,
+                    torch.nn.Linear(self.out_channels, 1)
+                )
+                optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=self.lr)
+                self.model = PPOPolicy(
+                    actor=actor,
+                    critic=critic,
+                    optim=optimizer,
+                    dist_fn=lambda logits: torch.distributions.Categorical(logits=logits),
+                    action_space=sample_env.single_action_space
                 )
         else:
             self.model, _ = self.make_model(None, custom_model_params)
@@ -291,10 +300,10 @@ class Training():
                 continue
             X_batch = X_batch.detach().cpu().numpy()
             y_batch = y_batch.detach().cpu().numpy()
-            # entraînement PPO sur le bloc
             env = self.create_env_fn(X_batch, y_batch, self.valid_transitions_dict)
-            self.model.set_env(env)
-            self.model.learn(total_timesteps=total_timesteps, reset_num_timesteps=False)
+            collector = Collector(self.model, env, ReplayBuffer(total_timesteps))
+            collector.collect(n_step=total_timesteps)
+            self.model.update(total_timesteps, collector.buffer)
 
         # Validation après tout le train_loader
         for X_batch, y_batch in self.val_loader:
@@ -307,7 +316,9 @@ class Training():
 
             env = self.create_env_fn(X_batch, y_batch, self.valid_transitions_dict)
             obs = env.reset()
-            actions = self.model.predict(obs, deterministic=True)[0]
+            from tianshou.data import Batch
+            batch = Batch(obs=obs)
+            actions = self.model(batch).logits.argmax(dim=-1).cpu().numpy()
 
             if X_batch.ndim == 2:
                 previous_state = X_batch[-1, -1]
@@ -625,10 +636,12 @@ class Training():
             proba = self.model(X)
             res = torch.argmax(proba, axis=1)
         else:
-            actions = self.model.predict(X, deterministic=True)[0]
-            if isinstance(actions, int):
+            from tianshou.data import Batch
+            batch = Batch(obs=X.detach().cpu().numpy() if torch.is_tensor(X) else X)
+            actions = self.model(batch).logits.argmax(dim=-1).cpu().numpy()
+            if isinstance(actions, (int, np.integer)):
                 actions = [actions]
-            
+
             if X.ndim == 2:
                 previous_state = X[-1, -1]
             elif X.ndim == 3:
@@ -638,10 +651,10 @@ class Training():
             elif X.ndim == 5:
                 previous_state = X[:, :, :, -1, -1]
             else:
-                pass
+                previous_state = None
 
             res = torch.Tensor([self.valid_transitions_dict[previous_state[i].item()][actions[i]] for i in range(len(actions))])
-            if actions.shape[0] == 1:
+            if len(actions) == 1:
                 res = res[0]
     
         return res

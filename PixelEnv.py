@@ -7,8 +7,10 @@ class PixelEnv(gym.Env):
     def __init__(self, features_block, next_true_states, valid_transitions_dict):
         super().__init__()
 
-        self.features = features_block  # shape: (B, F, T)
-        self.current_states = features_block[-1, -1]  # état courant: (B,) → dernier feature dernier timestep
+        # Chaque environnement ne gère qu'un seul pixel / échantillon
+        self.features = features_block  # shape: (F, T)
+        # État courant : dernier feature du dernier timestep
+        self.current_states = features_block[-1, -1]
         self.true_next_states = next_true_states        # shape: (B,)
         self.valid_transitions = valid_transitions_dict
         self.batch_size = self.features.shape[0]
@@ -17,7 +19,7 @@ class PixelEnv(gym.Env):
         self.possible_next_states = valid_transitions_dict[int(self.current_states)]
 
         # Action = un entier par pixel
-        self.action_space = self.action_space = spaces.Discrete(len(self.possible_next_states))
+        self.action_space = spaces.Discrete(len(self.possible_next_states))
 
         # Observation = (B, F+1, T)
         self.observation_space = spaces.Box(
@@ -46,9 +48,7 @@ class PixelEnv(gym.Env):
     
 
 def create_vec_env_from_block(features_block, next_states, valid_transitions):
-    """
-    Crée un VecEnv à partir d’un bloc (B, F, T)
-    """
+    """Crée un ``DummyVectorEnv`` Tianshou à partir d'un bloc ``(B, F, T)``."""
     B = features_block.shape[0]
     envs = []
 

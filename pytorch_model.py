@@ -346,6 +346,7 @@ class Training():
         return total_loss
 
     def create_env_fn(self, X, y, valid_transitions):
+        """Helper pour créer un ``DummyVectorEnv`` Tianshou."""
         return create_vec_env_from_block(X, y, valid_transitions)
 
     def launch_epoch(self, epoch):
